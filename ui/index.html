@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab EDD2</title>
+    <link rel="stylesheet" href="leaflet.css" />
+    <script src="leaflet.js"></script>
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.js"></script>
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .leaflet-container {
+            height: 100%;
+            width: 100%;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .content {
+            position: absolute;
+            z-index: 1001;
+            padding: 10px;
+            margin: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+        }
+
+        input,
+        button {
+            padding: 10px;
+        }
+
+        .ui-menu {
+            z-index: 1003;
+        }
+        .ui-button {
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="content">
+        <div>
+            <div style="display: grid; gap: 10px">
+                <input id="origin" class="ui-widget ui-corner-all" placeholder="Ingrese el origen">
+                <input id="out" class="ui-widget ui-corner-all" placeholder="Ingrese el destino">
+                <button class="ui-button ui-widget ui-corner-all" onclick="minimos()">Buscar</button>
+                <button class="ui-button ui-widget ui-corner-all" onclick="restaurar();">Restaurar marcadores</button>
+            </div>
+        </div>
+    </div>
+    <div id="map" style="width: 100%; height: 100%;"></div>
+    <script src="/eel.js"></script>
+    <script>
+        window.onload = () => {
+            eel.initdatos()
+        }
+        var puntos;
+        var polyline;
+        var map = L.map('map', {
+            renderer: L.canvas()
+        }).setView([4, -72], 5);
+        const tiles = L.tileLayer('http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+            maxZoom: 19,
+            minZoom: 2,
+            subdomains: ["mt0", "mt1", "mt2", "mt3"],
+            attribution: '&copy; <a href="https://www.maps.google.com">Google Maps</a>'
+        }).addTo(map);
+        function onClose() {
+            eel.on_window_close();
+        }
+        window.addEventListener("beforeunload", onClose);
+        eel.expose(setMarkers)
+        function setMarkers(data) {
+            const arreglo = JSON.parse(data);
+            puntos = [];
+
+            function busqueda(kw) {
+                kw = kw.toLowerCase(); // Convertimos el término de búsqueda a minúsculas
+                return arreglo.filter(element => element.busq.toLowerCase().includes(kw));
+            }
+
+            arreglo.forEach(aeropuerto => {
+                var marker = L.circleMarker([aeropuerto.latitud, aeropuerto.longitud], {
+                    fillOpacity: 1
+                })
+                .addTo(map)
+                .on("click", 
+                    function circleClick(e) {
+                        var clickedCircle = e.target;
+                        clickedCircle.bindPopup(infoAeropuerto(aeropuerto)).openPopup();
+                        mostrar10();
+                });
+                puntos.push(marker);
+            });
+
+            const autoCompleteOptions = {
+                minLength: 0,
+                source: function (request, response) {
+                    const results = busqueda(request.term);
+                    response(results.slice(0, 10));
+                },
+                select: setOrigen
+            };
+
+            $("#origin").autocomplete(autoCompleteOptions).data("ui-autocomplete")._renderItem = function (ul, item) {
+                return $("<li class='ui-button ui-menu-item' style='display: block; text-align: left;'></li>")
+                    .data("item.autocomplete", item)
+                    .append("⏺️ "+item.busq)
+                    .appendTo(ul);
+            };
+
+            $("#out").autocomplete({
+                ...autoCompleteOptions,
+                select: setDestino
+            }).data("ui-autocomplete")._renderItem = function (ul, item) {
+                return $("<li class='ui-button ui-menu-item' style='display: block; text-align: left;'></li>")
+                    .data("item.autocomplete", item)
+                    .append("⏺️ "+item.busq)
+                    .appendTo(ul);
+            };
+        }
+
+        function infoAeropuerto(aeropuerto) {
+            return `
+            <h1>${aeropuerto.codigo}</h1>
+            <h3>${aeropuerto.nombre}</h3>
+            <p>${aeropuerto.ciudad} - ${aeropuerto.pais}</p>
+            <p>${aeropuerto.latitud}, ${aeropuerto.longitud}</p>
+            <button class="ui-button ui-widget ui-corner-all" onclick='mostrar10("${aeropuerto.codigo}");return false;''>Ver aeropuertos lejanos</button>
+            <button class="ui-button ui-widget ui-corner-all" onclick='setOrDest("${aeropuerto.codigo}",0);return false;''>Asignar ${aeropuerto.codigo} (${aeropuerto.ciudad}, ${aeropuerto.pais}) como origen</button>
+            <button class="ui-button ui-widget ui-corner-all" onclick='setOrDest("${aeropuerto.codigo}",1);return false;''>Asignar ${aeropuerto.codigo} (${aeropuerto.ciudad}, ${aeropuerto.pais}) como destino</button>
+            `;
+        }
+        function setOrigen(event, ui) {
+            event.preventDefault();
+            console.log(ui.item);
+            let cod = ui.item.codigo;
+            $("#origin").val(cod)
+            map.flyTo([ui.item.latitud, ui.item.longitud], 10)
+        }
+        function setDestino(event, ui) {
+            event.preventDefault();
+            console.log(ui.item);
+            let cod = ui.item.codigo;
+            $("#out").val(cod)
+            map.flyTo([ui.item.latitud, ui.item.longitud], 10)
+        }
+        function mostrar10(codigo) {
+            if(codigo) {
+                eel.masLejanos(codigo);
+            }
+        }
+        function setOrDest(codigo,input) {
+            if(codigo) {
+                if(input==0){
+                    if($("#origin").val() != $("#out").val() || $("#out").val() != codigo){
+                        $("#origin").val(codigo)
+                    }
+                    else {
+                        if($("#origin").val()=="") {
+                            $("#origin").val(codigo)
+                        } else {
+                            alert("El origen y el destino no pueden ser iguales")
+                        }
+                    }
+                } else {
+                    if($("#origin").val() != $("#out").val() || $("#origin").val() != codigo){
+                        $("#out").val(codigo)
+                    }
+                    else {
+                        if($("#out").val()=="") {
+                            $("#out").val(codigo)
+                        } else {
+                            alert("El origen y el destino no pueden ser iguales")
+                        }
+                    }
+                }
+            }
+        }
+        eel.expose(mostrarLejanos)
+        function mostrarLejanos(data) {
+            datos = JSON.parse(data)
+            map.flyTo([datos[0].aeropuerto.latitud, datos[0].aeropuerto.longitud], 3)
+            console.log(puntos)
+            quitarPuntos();            
+            datos.forEach(dato => {
+                var marker = L.circleMarker([dato.aeropuerto.latitud, dato.aeropuerto.longitud], {
+                    fillOpacity: 1
+                })
+                .addTo(map)
+                .on("click", 
+                    function circleClick(e) {
+                        var clickedCircle = e.target;
+                        clickedCircle.bindPopup(infoAeropuerto(dato.aeropuerto)).openPopup();
+                        mostrar10();
+                })
+                .openPopup();
+                puntos.push(marker);
+            });
+        }
+        function quitarPuntos() {
+            puntos.forEach(punto => {
+                punto.remove();
+            });
+            puntos = []
+        }
+        function restaurar() {
+            quitarPuntos();
+            eel.initdatos();
+            map.flyTo([4, -72], 5)
+            if (polyline) {
+                map.removeLayer(polyline); // Elimina la línea anterior si existe
+            }
+
+        }
+        function minimos() {
+            var origen = $("#origin").val();
+            var destino = $("#out").val();
+            eel.caminoMinimo(origen, destino);
+        }
+        eel.expose(mostrarMin)
+        function mostrarMin(data) {
+            if (polyline) {
+                map.removeLayer(polyline); // Elimina la línea anterior si existe
+            }
+            quitarPuntos()
+            console.log(data);
+            mostrarLejanos(data);
+            const lstPuntos = [];
+            JSON.parse(data).forEach(element => {
+                lstPuntos.push([element.aeropuerto.latitud, element.aeropuerto.longitud]);
+            });
+            console.log(lstPuntos);
+            polyline = L.polyline(lstPuntos, { color: 'red' }).addTo(map);
+            // var polyline = L.polyline(puntos, { color: 'red' }).addTo(map);
+        }
+    </script>
+
+</body>
+
+</html>
